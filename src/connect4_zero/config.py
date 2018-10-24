@@ -57,6 +57,8 @@ class ResourceConfig:
         self.play_data_filename_tmpl = "play_%s.json"
 
         self.log_dir = os.path.join(self.project_dir, "logs")
+        self.tensorboard_log_dir = os.path.join(self.log_dir, "tensorboard")
+        self.train_log_filename = "train_log_%s.json"
         self.main_log_path = os.path.join(self.log_dir, "main.log")
 
     def create_directories(self):

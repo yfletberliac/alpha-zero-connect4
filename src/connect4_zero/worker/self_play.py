@@ -10,12 +10,13 @@ from connect4_zero.lib import tf_util
 from connect4_zero.lib.data_helper import get_game_data_filenames, write_game_data_to_file
 from connect4_zero.lib.model_helpler import load_best_model_weight, save_as_best_model, \
     reload_best_model_weight_if_changed
+from connect4_zero.lib.tensorboard_logger import TensorBoardLogger
 
 logger = getLogger(__name__)
 
 
 def start(config: Config):
-    tf_util.set_session_config(per_process_gpu_memory_fraction=0.9)
+    tf_util.set_session_config(per_process_gpu_memory_fraction=0.01)
     return SelfPlayWorker(config, env=Connect4Env()).start()
 
 
@@ -33,10 +34,13 @@ class SelfPlayWorker:
         self.black = None  # type: Connect4Player
         self.white = None  # type: Connect4Player
         self.buffer = []
+        self.tensor_board = None  # type: TensorBoardLogger
 
     def start(self):
         if self.model is None:
             self.model = self.load_model()
+
+        self.tensor_board = TensorBoardLogger(os.path.join(self.config.resource.tensorboard_log_dir, "self_play"))
 
         self.buffer = []
         idx = 1
@@ -47,6 +51,12 @@ class SelfPlayWorker:
             end_time = time()
             logger.debug(f"game {idx} time={end_time - start_time} sec, "
                          f"turn={env.turn}:{env.observation} - Winner:{env.winner}")
+
+            # log play info to tensor board
+            prefix = "self"
+            log_info = {f"{prefix}/time": end_time - start_time, f"{prefix}/turn": env.turn}
+            self.tensor_board.log_scaler(log_info, idx)
+
             if (idx % self.config.play_data.nb_game_in_file) == 0:
                 reload_best_model_weight_if_changed(self.model)
             idx += 1

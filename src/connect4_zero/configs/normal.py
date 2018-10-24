@@ -28,7 +28,7 @@ class PlayConfig:
         self.change_tau_turn = 5
         self.virtual_loss = 3
         self.prediction_queue_size = 16
-        self.parallel_search_num = 2
+        self.parallel_search_num = 48
         self.prediction_worker_sleep_sec = 0.0001
         self.wait_for_expanding_sleep_sec = 0.00001
 
@@ -38,8 +38,9 @@ class TrainerConfig:
         self.batch_size = 512  # 2048
         self.epoch_to_checkpoint = 1
         self.start_total_steps = 0
-        self.save_model_steps = 300
-        self.load_data_steps = 300
+        self.save_model_steps = 1000
+        self.load_data_steps = 1000
+        self.logging_per_steps = 100
 
 
 class ModelConfig:

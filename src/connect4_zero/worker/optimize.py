@@ -1,11 +1,12 @@
 import os
 from datetime import datetime
 from logging import getLogger
-from time import sleep
+from time import sleep, time
 
 import keras.backend as K
 import numpy as np
 from keras.optimizers import SGD
+from keras.callbacks import Callback
 
 from connect4_zero.agent.model_connect4 import Connect4Model, objective_function_for_policy, \
     objective_function_for_value
@@ -15,13 +16,14 @@ from connect4_zero.lib.data_helper import get_game_data_filenames, read_game_dat
     get_next_generation_model_dirs
 from connect4_zero.lib.model_helpler import load_best_model_weight
 from connect4_zero.env.connect4_env import Connect4Env, Player
+from connect4_zero.lib.tensorboard_step_callback import TensorBoardStepCallback
 
 
 logger = getLogger(__name__)
 
 
 def start(config: Config):
-    tf_util.set_session_config(per_process_gpu_memory_fraction=0.4)
+    tf_util.set_session_config(per_process_gpu_memory_fraction=0.80)
     return OptimizeWorker(config).start()
 
 
@@ -42,7 +44,18 @@ class OptimizeWorker:
         self.compile_model()
         last_load_data_step = last_save_step = total_steps = self.config.trainer.start_total_steps
         min_data_size_to_learn = 1000
+        save_model_callback = PerStepCallback(self.config.trainer.save_model_steps, self.save_current_model)
+        callbacks = [save_model_callback]  # type: list[Callback]
         self.load_play_data()
+
+        train_id = datetime.now().strftime("%Y%m%d-%H%M%S.%f")
+        tb_callback = TensorBoardStepCallback(
+            log_dir=os.path.join(self.config.resource.tensorboard_log_dir, "training",
+                                 self.config.resource.train_log_filename % train_id),
+            logging_per_steps=self.config.trainer.logging_per_steps,
+            step=total_steps,
+        )
+        callbacks.append(tb_callback)
 
         while True:
             if self.dataset_size < min_data_size_to_learn:
@@ -51,7 +64,7 @@ class OptimizeWorker:
                 self.load_play_data()
                 continue
             self.update_learning_rate(total_steps)
-            steps = self.train_epoch(self.config.trainer.epoch_to_checkpoint)
+            steps = self.train_epoch(self.config.trainer.epoch_to_checkpoint, callbacks)
             total_steps += steps
             if last_save_step + self.config.trainer.save_model_steps < total_steps:
                 self.save_current_model()
@@ -61,11 +74,12 @@ class OptimizeWorker:
                 self.load_play_data()
                 last_load_data_step = total_steps
 
-    def train_epoch(self, epochs):
+    def train_epoch(self, epochs, callbacks):
         tc = self.config.trainer
         state_ary, policy_ary, z_ary = self.dataset
         self.model.model.fit(state_ary, [policy_ary, z_ary],
                              batch_size=tc.batch_size,
+                             callbacks=callbacks,
                              epochs=epochs)
         steps = (state_ary.shape[0] // tc.batch_size) * epochs
         return steps
@@ -192,3 +206,27 @@ class OptimizeWorker:
             z_list.append(z)
 
         return np.array(state_list), np.array(policy_list), np.array(z_list)
+
+
+class PerStepCallback(Callback):
+    def __init__(self, per_step, callback, wait_after_save_model_ratio=None):
+        super().__init__()
+        self.per_step = per_step
+        self.step = 0
+        self.callback = callback
+        self.wait_after_save_model_ratio = wait_after_save_model_ratio
+        self.last_wait_time = time()
+
+    def on_batch_end(self, batch, logs=None):
+        self.step += 1
+        if self.step % self.per_step == 0:
+            self.callback()
+            self.wait()
+
+    def wait(self):
+        if self.wait_after_save_model_ratio:
+            time_spent = time() - self.last_wait_time
+            logger.debug(f"start sleeping {time_spent} seconds")
+            sleep(time_spent * self.wait_after_save_model_ratio)
+            logger.debug(f"finish sleeping")
+            self.last_wait_time = time()
